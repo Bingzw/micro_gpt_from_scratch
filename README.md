@@ -1,1 +1,0 @@
-# micro_gpt_from_scratch
