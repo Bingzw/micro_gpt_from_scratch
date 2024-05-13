@@ -1,4 +1,3 @@
-import torch
 import tiktoken
 import re
 
