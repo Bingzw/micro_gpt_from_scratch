@@ -5,12 +5,12 @@ from mha import MultiHeadAttention
 
 
 class FeedForward(nn.Module):
-    def __init__(self, config):
+    def __init__(self, cfg):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(config["emb_dim"], config["emb_dim"] * 4),
+            nn.Linear(cfg["emb_dim"], 4 * cfg["emb_dim"]),
             GELU(),
-            nn.Linear(config["emb_dim"] * 4, config["emb_dim"]),
+            nn.Linear(4 * cfg["emb_dim"], cfg["emb_dim"]),
         )
 
     def forward(self, x):
@@ -18,60 +18,58 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, config):
+    def __init__(self, cfg):
         super().__init__()
-        self.attention = MultiHeadAttention(
-            d_in=config["emb_dim"],
-            d_out=config["emb_dim"],
-            sequence_length=config["sequence_length"],
-            num_heads=config["n_heads"],
-            dropout=config["drop_rate"],
-            qkv_bias=config["qkv_bias"]
-        )
-        self.ff = FeedForward(config)
-        self.layer_norm1 = LayerNorm(config["emb_dim"])
-        self.layer_norm2 = LayerNorm(config["emb_dim"])
-        self.dropout = nn.Dropout(config["drop_rate"])
+        self.att = MultiHeadAttention(
+            d_in=cfg["emb_dim"],
+            d_out=cfg["emb_dim"],
+            context_length=cfg["context_length"],
+            num_heads=cfg["n_heads"],
+            dropout=cfg["drop_rate"],
+            qkv_bias=cfg["qkv_bias"])
+        self.ff = FeedForward(cfg)
+        self.norm1 = LayerNorm(cfg["emb_dim"])
+        self.norm2 = LayerNorm(cfg["emb_dim"])
+        self.drop_shortcut = nn.Dropout(cfg["drop_rate"])
 
     def forward(self, x):
-        # shortcut connection for attention block
+        # Shortcut connection for attention block
         shortcut = x
-        x = self.layer_norm1(x)
-        x = self.attention(x)
-        x = self.dropout(x)
-        x = x + shortcut
+        x = self.norm1(x)
+        x = self.att(x)   # Shape [batch_size, num_tokens, emb_size]
+        x = self.drop_shortcut(x)
+        x = x + shortcut  # Add the original input back
 
-        # shortcut connection for feedforward block
+        # Shortcut connection for feed-forward block
         shortcut = x
-        x = self.layer_norm2(x)
+        x = self.norm2(x)
         x = self.ff(x)
-        x = self.dropout(x)
-        x = x + shortcut
+        x = self.drop_shortcut(x)
+        x = x + shortcut  # Add the original input back
 
         return x
 
 
 class GPTModel(nn.Module):
-    def __init__(self, config):
+    def __init__(self, cfg):
         super().__init__()
-        self.token_embeddings = nn.Embedding(config["vocab_size"], config["emb_dim"])
-        self.position_embeddings = nn.Embedding(config["sequence_length"], config["emb_dim"])
-        self.drop_layer = nn.Dropout(config["drop_rate"])
+        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"])
+        self.pos_emb = nn.Embedding(cfg["context_length"], cfg["emb_dim"])
+        self.drop_emb = nn.Dropout(cfg["drop_rate"])
 
-        self.transformer_blocks = nn.Sequential(
-            *[TransformerBlock(config) for _ in range(config["n_layers"])]
-        )
-        self.final_norm = LayerNorm(config["emb_dim"])
-        self.output_head = nn.Linear(config["emb_dim"], config["vocab_size"], bias=False)  # conver the output to vocab
-        # size to forecast the next word
+        self.trf_blocks = nn.Sequential(
+            *[TransformerBlock(cfg) for _ in range(cfg["n_layers"])])
 
-    def forward(self, input_ids):
-        batch_size, sequence_length = input_ids.shape
-        token_embed = self.token_embeddings(input_ids)
-        position_embed = self.position_embeddings(torch.arange(sequence_length).to(input_ids.device))
-        x = token_embed + position_embed
-        x = self.drop_layer(x)
-        x = self.transformer_blocks(x)
+        self.final_norm = LayerNorm(cfg["emb_dim"])
+        self.out_head = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False)
+
+    def forward(self, in_idx):
+        batch_size, seq_len = in_idx.shape
+        tok_embeds = self.tok_emb(in_idx)
+        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
+        x = tok_embeds + pos_embeds  # Shape [batch_size, num_tokens, emb_size]
+        x = self.drop_emb(x)
+        x = self.trf_blocks(x)
         x = self.final_norm(x)
-        logits = self.output_head(x)
+        logits = self.out_head(x)
         return logits

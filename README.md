@@ -4,7 +4,8 @@
 
 This project is an implementation of a simplified version of the GPT (Generative Pretrained Transformer) model from 
 scratch in PyTorch. It can be used to generate text based on a given context. The goal of this project is for 
-self-learning purpose and to understand the inner workings of the GPT model.
+self-learning purpose and to understand the inner workings of the GPT model. The implementation is learned and practiced 
+from here: https://github.com/rasbt/LLMs-from-scratch
 
 ## Setup
 
@@ -36,4 +37,4 @@ Future Plan
 Discuss your plans for the future of the project. This could include features you plan to add or improvements you plan to make.  
 
 ## Reference
-List any resources that you referenced when creating your project. This could include papers, blog posts, or other code repositories.
+https://github.com/rasbt/LLMs-from-scratch
