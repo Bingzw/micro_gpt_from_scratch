@@ -120,3 +120,54 @@ def calc_loss_loader(data_loader, model, device, batch_size=None):
     return total_loss / batch_size
 
 
+def generate_and_print_sample(model, tokenizer, device, start_context):
+    model.eval()
+    max_seq_length = model.position_embeddings.weight.shape[0]
+    encoded = text_to_token_ids(start_context, tokenizer).to(device)
+    with torch.no_grad():
+        token_ids = generate_text_simple(
+            model=model, idx=encoded,
+            max_new_tokens=50, max_sequence_length=max_seq_length
+        )
+        decoded_text = token_ids_to_text(token_ids, tokenizer)
+        print(decoded_text.replace("\n", " "))  # Compact print format
+    model.train()
+
+
+def generate_advanced(model, idx, max_new_tokens, max_seq_len, temperature, top_k=None):
+    """
+    Generate text from the model by adding top k sampling and temperature rescaling
+    :param model: the gpt model
+    :param idx: input index of the shape (batch_size, sequence_length)
+    :param max_new_tokens: the maximum number of tokens to generate
+    :param max_seq_len: the max size of the sequence that gpt model supports
+    :param temperature: the temperature value that control the randomness of the sampling
+    :param top_k: the top k value for the top k sampling
+    :return: idx the generated text, shape of (batch_size, sequence_length)
+    """
+    for _ in range(max_new_tokens):
+        idx_cond = idx[:, -max_seq_len:]
+
+        with torch.no_grad():
+            logits = model(idx_cond)
+        logits = logits[:, -1, :]
+
+        # filter logits with top_k sampling
+        if top_k is not None:
+            top_logits, _ = torch.topk(logits, top_k)
+            min_val = top_logits[:, -1]
+            logits = torch.where(logits < min_val, torch.tensor(float('-inf')).to(logits.device), logits)
+
+        if temperature > 0.0:
+            logits = logits / temperature
+            # rescale the probabilities
+            probs = torch.softmax(logits, dim=-1)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1)
+        else:
+            idx_next = torch.argmax(logits, dim=-1, keepdim=True)
+        idx = torch.cat([idx, idx_next], dim=-1)
+
+    return idx
+
+

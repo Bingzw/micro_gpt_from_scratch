@@ -4,10 +4,12 @@ import torch
 from tokenizer import get_gpt2_tokenizer
 from dataloader import create_dataloader_v1
 from gpt import GPTModel
-from utils import calc_loss_batch, calc_loss_loader
+from utils import calc_loss_batch, calc_loss_loader, generate_and_print_sample, generate_advanced, text_to_token_ids, \
+    token_ids_to_text
 
 
-def train_gpt_model(model, train_loader, val_loader, optimizer, device, num_epochs, eval_freq, eval_iter):
+def train_gpt_model(model, train_loader, val_loader, optimizer, device, num_epochs, eval_freq, eval_iter,
+                    start_context, tokenizer):
     """
     Train the GPT model
     :param model: the GPT model
@@ -18,6 +20,8 @@ def train_gpt_model(model, train_loader, val_loader, optimizer, device, num_epoc
     :param num_epochs: the number of epochs
     :param eval_freq: the evaluation frequency
     :param eval_iter: the number of batches to evaluate
+    :param start_context: the starting context for generating text
+    :param tokenizer: the tokenizer
     :return: the training losses, validation losses, and the tokens seen
     """
     train_losses, val_losses, track_tokens_seen = [], [], []
@@ -45,6 +49,11 @@ def train_gpt_model(model, train_loader, val_loader, optimizer, device, num_epoc
                 val_losses.append(val_loss)
                 track_tokens_seen.append(tokens_seen)
                 model.train()
+
+        # generate a sample text after each epoch
+        generate_and_print_sample(
+            model, tokenizer, device, start_context
+        )
     return train_losses, val_losses, track_tokens_seen
 
 
@@ -96,12 +105,11 @@ if __name__ == "__main__":
     model = GPTModel(config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    learning_rate = 0.0004
+    learning_rate = 0.001
     weight_decay = 0.1
-    num_epochs = 10
+    num_epochs = 30
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    '''
     train_losses, val_losses, track_tokens_seen = train_gpt_model(
         model=model,
         train_loader=train_dataloader,
@@ -110,10 +118,40 @@ if __name__ == "__main__":
         device=device,
         num_epochs=num_epochs,
         eval_freq=5,
-        eval_iter=5
+        eval_iter=5,
+        start_context="Every effort moves you",
+        tokenizer=tokenizer
     )
-    '''
 
+    # generate a sample text after training
+    token_ids = generate_advanced(
+        model=model,
+        idx=text_to_token_ids("Every effort moves you", tokenizer),
+        max_new_tokens=15,
+        context_size=config["sequence_length"],
+        top_k=25,
+        temperature=1.4
+    )
+
+    print("Output text:\n", token_ids_to_text(token_ids, tokenizer))
+
+    # save model
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+        },
+        "model_and_optimizer.pth"
+    )
+    # load model
+    """
+    checkpoint = torch.load("model_and_optimizer.pth")
+    model = GPTModel(config)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.1)
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    model.train()
+    """
 
 
 

@@ -48,7 +48,7 @@ class MultiHeadAttention(nn.Module):
         # Apply attention weights to values
         attn_output = torch.matmul(attn_weights, values).transpose(1, 2)
         attn_output = attn_output.contiguous().view(batch, sequence_length, self.d_out)
-        attn_output = self.out_proj(attn_output) # note that the output projection is not necessary needed and it would
+        attn_output = self.out_proj(attn_output)  # note that the output projection is not necessary needed and it would
         # not affect the correctness of the model when removed
 
         return attn_output
