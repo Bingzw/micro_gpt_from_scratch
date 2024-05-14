@@ -28,12 +28,7 @@ The project consists of several Python scripts:
 - train.py: This is the main script that trains the GPT model.
 - gpt.py: This script contains the implementation of the GPT model and its components, including the TransformerBlock and FeedForward classes.
 - utils.py: This script contains utility functions for the project, such as functions for text generation, loss calculation, and text-to-token and token-to-text conversion.
-- mha.py: This script contains the implementation of the MultiHeadAttention class, which is used in the TransformerBlock class.
-
-## Limitations
-Discuss any limitations of your project. This could be areas where your project does not perform well or features that it currently lacks.  
-Future Plan
-Discuss your plans for the future of the project. This could include features you plan to add or improvements you plan to make.  
+- mha.py: This script contains the implementation of the MultiHeadAttention class, which is used in the TransformerBlock class.  
 
 ## Reference
 https://github.com/rasbt/LLMs-from-scratch
