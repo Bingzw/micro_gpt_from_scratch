@@ -3,18 +3,17 @@ import torch.nn as nn
 
 
 class LayerNorm(nn.Module):
-    def __init__(self, embed_dim):
+    def __init__(self, emb_dim):
         super().__init__()
         self.eps = 1e-5
-        self.scale = nn.Parameter(torch.ones(embed_dim))  # the learnable scale parameter
-        self.shift = nn.Parameter(torch.zeros(embed_dim))  # the learnable shift parameter
-        # note that the scale and shift parameters are initialized to 1 and 0 respectively, and will be trained during
-        # training process
+        self.scale = nn.Parameter(torch.ones(emb_dim))
+        self.shift = nn.Parameter(torch.zeros(emb_dim))
 
     def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.scale * (x - mean) / (std + self.eps) + self.shift
+        mean = x.mean(dim=-1, keepdim=True)
+        var = x.var(dim=-1, keepdim=True, unbiased=False)
+        norm_x = (x - mean) / torch.sqrt(var + self.eps)
+        return self.scale * norm_x + self.shift
 
 
 class GELU(nn.Module):
@@ -23,111 +22,82 @@ class GELU(nn.Module):
 
     def forward(self, x):
         return 0.5 * x * (1 + torch.tanh(
-            torch.sqrt(torch.tensor(2.0 / torch.pi)) * (x + 0.044715 * torch.pow(x, 3))
+            torch.sqrt(torch.tensor(2.0 / torch.pi)) *
+            (x + 0.044715 * torch.pow(x, 3))
         ))
 
 
-def generate_text_simple(model, idx, max_new_tokens, max_sequence_length):
-    """
-    Generate text from the model
-    :param model: the gpt model
-    :param idx: input indices of the shape (batch_size, sequence_length)
-    :param max_new_tokens: the maximum number of tokens to generate
-    :param max_sequence_length: the max size of the sequence that gpt model supports
-    :return: the generated text
-    """
+def generate_text_simple(model, idx, max_new_tokens, context_size):
+    # idx is (B, T) array of indices in the current context
     for _ in range(max_new_tokens):
-        # crop the input to the content size
-        idx_cond = idx[:, -max_sequence_length:]
 
+        # Crop current context if it exceeds the supported context size
+        # E.g., if LLM supports only 5 tokens, and the context size is 10
+        # then only the last 5 tokens are used as context
+        idx_cond = idx[:, -context_size:]
+
+        # Get the predictions
         with torch.no_grad():
             logits = model(idx_cond)
 
-        # get the last token logits
-        logits_last = logits[:, -1, :]  # (batch_size, vocab_size)
-        # get the idx of the vocabulary with the highest probability
-        idx_new = torch.argmax(logits_last, dim=-1, keepdim=True)  # (batch_size, 1)
-        # concatenate the new idx to the input
-        idx = torch.cat([idx, idx_new], dim=-1)
+        # Focus only on the last time step
+        # (batch, n_token, vocab_size) becomes (batch, vocab_size)
+        logits = logits[:, -1, :]
+
+        # Get the idx of the vocab entry with the highest logits value
+        idx_next = torch.argmax(logits, dim=-1, keepdim=True)  # (batch, 1)
+
+        # Append sampled index to the running sequence
+        idx = torch.cat((idx, idx_next), dim=1)  # (batch, n_tokens+1)
 
     return idx
 
 
 def text_to_token_ids(text, tokenizer):
-    """
-    Convert text to token ids
-    :param text: the input text
-    :param tokenizer: the tokenizer
-    :return: encoded tensor
-    """
-    encoded = tokenizer.encode(text, allowed_special={'<endoftext>'})
+    encoded = tokenizer.encode(text, allowed_special={'<|endoftext|>'})
     encoded_tensor = torch.tensor(encoded).unsqueeze(0) # add batch dimension
     return encoded_tensor
 
 
 def token_ids_to_text(token_ids, tokenizer):
-    """
-    Convert token ids to text
-    :param token_ids: the input token ids
-    :param tokenizer: the tokenizer
-    :return: the decoded text
-    """
-    token_ids_flatten = token_ids.squeeze_(0)  # remove batch dimension
-    decoded = tokenizer.decode(token_ids_flatten.tolist())
-    return decoded
+    flat = token_ids.squeeze(0) # remove batch dimension
+    return tokenizer.decode(flat.tolist())
 
 
 def calc_loss_batch(input_batch, target_batch, model, device):
-    """
-    Calculate the loss for a batch
-    :param input_batch: the input batch
-    :param target_batch: the target batch
-    :param model: the gpt model
-    :param device: the device
-    :return: the loss
-    """
-    input_batch = input_batch.to(device)
-    target_batch = target_batch.to(device)
+    input_batch, target_batch = input_batch.to(device), target_batch.to(device)
     logits = model(input_batch)
-    loss = nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
+    loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
     return loss
 
 
-def calc_loss_loader(data_loader, model, device, batch_size=None):
-    """
-    Calculate the loss for a dataloader
-    :param data_loader: the dataloader
-    :param model: the gpt model
-    :param device: the device
-    :param batch_size: the number of batches to calculate the loss
-    :return: the loss
-    """
-    total_loss = 0
+def calc_loss_loader(data_loader, model, device, num_batches=None):
+    total_loss = 0.
     if len(data_loader) == 0:
         return float("nan")
-    elif batch_size is None:
-        batch_size = len(data_loader)
+    elif num_batches is None:
+        num_batches = len(data_loader)
     else:
         # Reduce the number of batches to match the total number of batches in the data loader
         # if num_batches exceeds the number of batches in the data loader
-        batch_size = min(batch_size, len(data_loader))
+        num_batches = min(num_batches, len(data_loader))
     for i, (input_batch, target_batch) in enumerate(data_loader):
-        if i < batch_size:
+        if i < num_batches:
             loss = calc_loss_batch(input_batch, target_batch, model, device)
             total_loss += loss.item()
         else:
             break
-    return total_loss / batch_size
+    return total_loss / num_batches
 
 
 def generate_and_print_sample(model, tokenizer, device, start_context):
     model.eval()
-    max_seq_length = model.position_embeddings.weight.shape[0]
+    context_size = model.pos_emb.weight.shape[0]
     encoded = text_to_token_ids(start_context, tokenizer).to(device)
     with torch.no_grad():
         token_ids = generate_text_simple(
             model=model, idx=encoded,
-            max_new_tokens=50, max_sequence_length=max_seq_length
+            max_new_tokens=50, context_size=context_size
         )
         decoded_text = token_ids_to_text(token_ids, tokenizer)
         print(decoded_text.replace("\n", " "))  # Compact print format

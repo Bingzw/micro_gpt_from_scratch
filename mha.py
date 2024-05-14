@@ -3,11 +3,11 @@ import torch.nn as nn
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_in, d_out, sequence_length, dropout, num_heads, qkv_bias=False):
+    def __init__(self, d_in, d_out, context_length, dropout, num_heads, qkv_bias=False):
         """
         :param d_in: the dimension of the input sequence
         :param d_out: the dimension of the output sequence
-        :param sequence_length: the length of the input sequence
+        :param context_length: the length of the input sequence
         :param dropout: the dropout rate
         :param num_heads: the number of heads
         :param qkv_bias: whether to use bias in the query, key, value linear layers
@@ -23,7 +23,7 @@ class MultiHeadAttention(nn.Module):
         self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.out_proj = nn.Linear(d_out, d_out)
         self.dropout = nn.Dropout(dropout)
-        self.register_buffer("mask", torch.triu(torch.ones(sequence_length, sequence_length), diagonal=1))
+        self.register_buffer("mask", torch.triu(torch.ones(context_length, context_length), diagonal=1))
 
     def forward(self, x):
         batch, sequence_length, d_in = x.shape
