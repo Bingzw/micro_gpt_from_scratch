@@ -155,7 +155,7 @@ if __name__ == "__main__":
         model=model,
         idx=text_to_token_ids("Every effort moves you", tokenizer),
         max_new_tokens=25,
-        max_seq_len=config["sequence_length"],
+        max_seq_len=config["context_length"],
         top_k=50,
         temperature=1.5
     )
